@@ -56,6 +56,7 @@ export function generateHookFunctionApi(
     .join(', ');
 
   const isQueryExists = queryParamTypes ? 'query' : '';
+  const dynamicType = requestType.replaceAll(' ', '') ? requestType.replaceAll(' ', '') : 'any'
   const useSelectName = toCamelCase(`useSelect ${summary.replace('useGetAll', '')}`);
   const capitalTag = toPascalCase(tag);
   const labelSelect = ['name', 'title', 'label'].find((key) => key in dtoCode) || 'id';
@@ -77,8 +78,8 @@ export const ${useSelectName} = (${
   useEffect(() => {
     const resData = data?.data;
     if (Array.isArray(resData)) {
-      setListData(resData.map(item => ({
-        value: item.id,
+      setListData(resData.map((item: any) => ({
+        value: item?.id,
         label: \`\${item?.${labelSelect}}\`,
         data: item
       })));
@@ -147,9 +148,9 @@ export const ${summary} = (${queryParamTypes ? `query: { ${queryParamTypes} }, `
     const templateValue = dynamicSegments.length > 0 ? `(${params}, value)` : '(value)';
     hookFunction += `
 export const ${summary} = (options?: TMutationOptions) => {
-  return useAppMutation<${requestType}>(
-    (value) => ${fnName}${templateValue},
-    { ...options, toastError: "failed/submit", toastSuccess: "success/submit", source: "${tag}" }
+  return useAppMutation(
+    (value: ${dynamicType}) => ${fnName}${templateValue},
+    { toastError: "failed/submit", toastSuccess: "success/submit", ...options  }
   );
 };
 `;
@@ -157,9 +158,9 @@ export const ${summary} = (options?: TMutationOptions) => {
     const params = dynamicSegments.join(', ');
     hookFunction += `
 export const ${summary} = (${dynamicParams ? `${dynamicParams}, ` : ''}options?: TMutationOptions) => {
-  return useAppMutation<${requestType}>(
-    (value) => ${fnName}(${dynamicParams ? `${params}, value` : 'value'}),
-    { ...options, toastError: "failed/update", toastSuccess: "success/update", source: "${tag}" }
+  return useAppMutation(
+    (value: ${dynamicType}) => ${fnName}(${dynamicParams ? `${params}, value` : 'value'}),
+    { toastError: "failed/update", toastSuccess: "success/update", ...options  }
   );
 };
 `;
@@ -167,9 +168,9 @@ export const ${summary} = (${dynamicParams ? `${dynamicParams}, ` : ''}options?:
     const params = dynamicSegments.join(', ');
     hookFunction += `
 export const ${summary} = (${dynamicParams ? `${dynamicParams}, ` : ''}options?: TMutationOptions) => {
-  return useAppMutation<string>(
+  return useAppMutation(
     () => ${fnName}(${params}),
-    { ...options, toastError: "failed/delete", toastSuccess: "success/delete", source: "${tag}" }
+    { toastError: "failed/delete", toastSuccess: "success/delete", ...options  }
   );
 };
 `;

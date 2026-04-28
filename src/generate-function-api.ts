@@ -13,6 +13,7 @@ export function generateFunctionApi(
   responseType: string,
   requestType: string,
   parameters: Parameter[] | null,
+  stripPrefix: string = '/api/v1/',
 ): string {
   /**
    * Generates TypeScript API function code for a given HTTP method.
@@ -23,9 +24,10 @@ export function generateFunctionApi(
    * @param responseType - Response TypeScript type
    * @param requestType - Request TypeScript type
    * @param parameters - Query or path parameters
+   * @param stripPrefix - Prefix to strip from the URL
    * @returns Generated TypeScript function code
    */
-  const endpoint = url.replace('/api/v1/', '').replace('_', '-');
+  const endpoint = url.replace(stripPrefix, '').replace('_', '-');
   const dynamicSegments = endpoint
     .split('/')
     .filter((segment) => segment.startsWith('{') && segment.endsWith('}'))
@@ -54,72 +56,81 @@ export function generateFunctionApi(
     .map((param) => `${param.name}${param.optional ? '?' : ''}: ${param.type}`)
     .join(', ');
 
+    const dynamicType = requestType.replaceAll(' ', '') ? requestType.replaceAll(' ', '') : 'any'
+
   switch (method.toLowerCase()) {
     case 'get':
       if (summary.toLowerCase().includes('all')) {
         return queryParamTypes
           ? `
-export const ${summary} = async (query: { ${queryParamTypes} }) => {
-  const url = qs.stringifyUrl({
-    url: \`${endpoint}\`,
-    query,
-  }, {
-    skipEmptyString: true,
-    skipNull: true
+const ${summary} = async (params: { ${queryParamTypes} }) => {
+  return ApiHelper.get<${responseType}>({
+    source: '${endpoint}',
+    params,
   });
-  return ApiHelper.all<${responseType}>(url);
 };
 `
           : `
-export const ${summary} = async () => {
-  return ApiHelper.all<${responseType}>(\`${endpoint}\`);
+const ${summary} = async () => {
+  return ApiHelper.get<${responseType}>({
+    source: '${endpoint}',
+  });
 };
 `;
       }
       if(queryParamTypes){
 
       return `
-export const ${summary} = async (query: { ${queryParamTypes} }) => {
-  const url = qs.stringifyUrl({
-    url: \`${dynamicPath}\`,
-    query,
-  }, {
-    skipEmptyString: true,
-    skipNull: true
+const ${summary} = async (params: { ${queryParamTypes} }) => {
+  return ApiHelper.get<${responseType}>({
+    source: \`${dynamicPath}\`,
+    params,
   });
-  return ApiHelper.detail<${responseType}>(url);
 };
 `;
       }else{
 
       return `
-export const ${summary} = async (${[dynamicParams, queryParamTypes].filter(Boolean).join(', ')}) => {
-  return ApiHelper.detail<${responseType}>(\`${dynamicPath}\`);
+const ${summary} = async (${[dynamicParams, queryParamTypes].filter(Boolean).join(', ')}) => {
+  return ApiHelper.get<${responseType}>({
+    source: \`${dynamicPath}\`,
+  });
 };
 `;
       }
     case 'post':
       return `
-export const ${summary} = async (${[dynamicParams, `body: ${requestType}`].filter(Boolean).join(', ')}) => {
-  return ApiHelper.createUpdate<${requestType}, ${responseType}>(\`${dynamicPath}\`, body);
+const ${summary} = async (${[dynamicParams, `body: ${dynamicType}`].filter(Boolean).join(', ')}) => {
+  return ApiHelper.create<${dynamicType}, ${responseType}>({
+    source: \`${dynamicPath}\`,
+    body,
+  });
 };
 `;
     case 'patch':
       return `
-export const ${summary} = async (${[dynamicParams, `body: ${requestType}`].filter(Boolean).join(', ')}) => {
-  return ApiHelper.updatePatch<${requestType}, ${responseType}>(\`${dynamicPath}\`, body);
+const ${summary} = async (${[dynamicParams, `body: ${dynamicType}`].filter(Boolean).join(', ')}) => {
+  return ApiHelper.updatePatch<${dynamicType}, ${responseType}>({
+    source: \`${dynamicPath}\`,
+    body,
+  });
 };
 `;
     case 'put':
       return `
-export const ${summary} = async (${[dynamicParams, `body: ${requestType}`].filter(Boolean).join(', ')}) => {
-  return ApiHelper.updatePut<${requestType}, ${responseType}>(\`${dynamicPath}\`, body);
+const ${summary} = async (${[dynamicParams, `body: ${dynamicType}`].filter(Boolean).join(', ')}) => {
+  return ApiHelper.updatePut<${dynamicType}, ${responseType}>({
+    source: \`${dynamicPath}\`,
+    body,
+  });
 };
 `;
     case 'delete':
       return `
-export const ${summary} = async (${dynamicParams}) => {
-  return ApiHelper.deletee<any>(\`${dynamicPath}\`);
+const ${summary} = async (${dynamicParams}) => {
+  return ApiHelper.delete<any>({
+    source: \`${dynamicPath}\`,
+  });
 };
 `;
     default:

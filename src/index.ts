@@ -36,11 +36,25 @@ interface ServiceConfig {
   hooks: [string, string][];
 }
 
+export interface ProjectProfile {
+  id: string;
+  name: string;
+  openapiUrl: string;
+  projectRoot: string;
+  outputPaths: {
+    services: string;
+    types: string;
+    config: string;
+  };
+  settings: {
+    stripPrefix: string;
+    useHooks: boolean;
+  };
+}
+
 export async function generateFilesFromOpenapi(
   openapiData: OpenApiData | string,
-  outputDir: string,
-  outputDirTypes: string,
-  outputConfigJson: string,
+  profile: ProjectProfile,
 ): Promise<void> {
   /**
    * Generates folder structure and files based on OpenAPI tags.
@@ -48,10 +62,14 @@ export async function generateFilesFromOpenapi(
    * Handles nested references and properties like `data`.
    *
    * @param openapiData - Path to OpenAPI JSON file or parsed data
-   * @param outputDir - Directory for generated files
-   * @param outputDirTypes - Directory for type definitions
-   * @param outputConfigJson - Directory for service config
+   * @param profile - Project profile configuration
    */
+  const root = path.resolve(profile.projectRoot);
+  const outputDir = path.resolve(root, profile.outputPaths.services);
+  const outputDirTypes = path.resolve(root, profile.outputPaths.types);
+  const outputConfigJson = path.resolve(root, profile.outputPaths.config);
+  const stripPrefix = profile.settings.stripPrefix;
+
   const data = await parseOpenApiData(openapiData);
   const schemas = data?.components?.schemas ?? {};
 
@@ -95,7 +113,16 @@ export async function generateFilesFromOpenapi(
   await generateServiceConfig(tagGroups, outputConfigJson, generateFunctionName);
 
   // Generate files for each tag
-  await generateTagFiles(tagGroups, tagReferences, outputDir, schemas, resolveRef, generateFunctionName);
+  await generateTagFiles(
+    tagGroups,
+    tagReferences,
+    outputDir,
+    schemas,
+    resolveRef,
+    generateFunctionName,
+    stripPrefix,
+    profile.settings.useHooks,
+  );
 }
 
 async function parseOpenApiData(openapiData: OpenApiData | string): Promise<OpenApiData> {
@@ -255,6 +282,8 @@ async function generateTagFiles(
   schemas: Record<string, any>,
   resolveRef: (ref: string) => any,
   generateFunctionName: (summary: string) => string,
+  stripPrefix: string,
+  useHooks: boolean,
 ) {
   for (const [tag, paths] of Object.entries(tagGroups)) {
     if (tag === 'api' || tag === 'App') continue;
@@ -262,7 +291,7 @@ async function generateTagFiles(
     await fs.mkdir(folderPath, { recursive: true });
 
     // Generate .ts file
-    await generateTsFile(tag, paths, folderPath, generateFunctionName);
+    await generateTsFile(tag, paths, folderPath, generateFunctionName, stripPrefix);
 
     // Generate index.ts
     await fs.writeFile(
@@ -270,7 +299,7 @@ async function generateTagFiles(
       `// Auto-generated file for tag: ${toKebabCase(tag)}
 export * from './${toKebabCase(tag)}';
 export type * from './types.d.ts';
-export * from './use-${toKebabCase(tag)}';
+${useHooks ? `export * from './use-${toKebabCase(tag)}';` : ''}
 `,
       { encoding: 'utf-8' },
     );
@@ -279,7 +308,9 @@ export * from './use-${toKebabCase(tag)}';
     await generateDtsFile(tag, tagReferences[tag], folderPath, schemas, resolveRef);
 
     // Generate hook file
-    await generateHookFile(tag, paths, folderPath, generateFunctionName);
+    if (useHooks) {
+      await generateHookFile(tag, paths, folderPath, generateFunctionName);
+    }
   }
 }
 
@@ -288,6 +319,7 @@ async function generateTsFile(
   paths: PathInfo[],
   folderPath: string,
   generateFunctionName: (summary: string) => string,
+  stripPrefix: string,
 ) {
   const uniqueTypes = new Set<string>();
   const importType = `import type {
@@ -307,7 +339,6 @@ ${paths
   const uniqueFunctions = new Set<string>();
   const tsFileContent = `// Auto-generated file for tag: ${toKebabCase(tag)}
 import { ApiHelper } from '@/utils/api-helper';
-import qs from 'query-string';
 
 ${importType}${paths
   .map((path) =>
@@ -319,6 +350,7 @@ ${importType}${paths
       path.response_type.replace('_for_', ''),
       extractText(path.request_type).replace('_for_', ''),
       path.parameters,
+      stripPrefix,
     ),
   )
   .join('')}
@@ -345,27 +377,11 @@ async function generateDtsFile(
   let stringTypes = '';
   const processedRefs = new Set<string>();
 
-  // for (const ref of references) {
-  //   const refName = ref.split('/').pop() || '';
-  //   if (refName in schemas && !processedRefs.has(ref)) {
-  //     const schema = resolveRef(ref);
-  //     if (refName.includes('ResponseList') || refName.includes('ResponseSingle')) {
-  //       stringTypes += generateResponseInterface(refName, schema, schemas, resolveRef, stringTypes);
-  //     } else {
-  //       stringTypes += jsonSchemaToTsInterface(refName, schema, stringTypes, schemas);
-  //     }
-  //     processedRefs.add(ref);
-  //   }
-  // }
-
   for (const ref of references) {
     const refName = ref.split('/').pop() || '';
     if (refName in schemas && !processedRefs.has(ref)) {
       const schema = resolveRef(ref);
-      // console.log("REFNAME", refName)
       if (refName.includes('Response')) {
-        // console.log("TRUE", refName)
-        // Recursively collect nested $refs inside this schema
         const nestedRefs = collectRefs(schema);
         nestedRefs.forEach((nestedRef) => {
           if (!references.has(nestedRef)) {
@@ -374,7 +390,6 @@ async function generateDtsFile(
         });
         stringTypes += generateResponseInterface(refName, schema, schemas, resolveRef, stringTypes);
       } else {
-        // console.log("FALSE", refName)
         stringTypes += jsonSchemaToTsInterface(refName, schema, stringTypes, schemas) + '\n';
       }
       processedRefs.add(ref);
@@ -398,33 +413,28 @@ function generateResponseInterface(
   let tsInterface = `export interface ${refName} {\n`;
   let dataType = '';
 
-  // Handle allOf structure from the response schema
   if (schema.allOf) {
-    // Find the data override in allOf entries
     const dataOverride = schema.allOf.find((item: any) => item.properties?.data);
     if (dataOverride) {
       const dataSchema = dataOverride.properties.data;
       if (dataSchema.$ref) {
-        dataType = dataSchema.$ref.split('/').pop() || 'any'; // e.g., ExampleModel
+        dataType = dataSchema.$ref.split('/').pop() || 'any';
       } else if (dataSchema.type === 'array' && dataSchema.items?.$ref) {
-        dataType = `${dataSchema.items.$ref.split('/').pop() || 'any'}[]`; // e.g., ExampleModel[]
+        dataType = `${dataSchema.items.$ref.split('/').pop() || 'any'}[]`;
       }
     }
 
-    // Merge properties from allOf, but we'll handle data property specially
     const mergedProperties: any = {};
     const mergedRequired: string[] = [];
 
     schema.allOf.forEach((item: any) => {
       if (item.$ref) {
-        // Resolve the reference and merge its properties
         const resolved = resolveRef(item.$ref);
         Object.assign(mergedProperties, resolved.properties || {});
         if (resolved.required) {
           mergedRequired.push(...resolved.required);
         }
       } else if (item.properties) {
-        // This is likely the data override - merge non-data properties
         const { data, ...otherProps } = item.properties;
         Object.assign(mergedProperties, otherProps);
         if (item.required) {
@@ -433,29 +443,18 @@ function generateResponseInterface(
       }
     });
 
-    // Override the data property type if we found a data override
-    if (dataType && mergedProperties.data) {
-      // Keep the original data property structure but we'll use our resolved type
-      // Don't modify mergedProperties.data here, we'll handle it in the loop below
-    }
-
-    // Set the merged properties back to schema
     schema.properties = mergedProperties;
-    schema.required = [...new Set(mergedRequired)]; // Remove duplicates
+    schema.required = [...new Set(mergedRequired)];
   }
 
-  // If no override found, check if schema already has data property defined
   if (!dataType && schema.properties?.data) {
     const propDetails = schema.properties.data;
     if (propDetails.$ref) {
       dataType = propDetails.$ref.split('/').pop() || 'any';
     } else if (propDetails.type === 'array' && propDetails.items) {
-      // Handle inline array definitions
       if (propDetails.items.$ref) {
         dataType = `${propDetails.items.$ref.split('/').pop() || 'any'}[]`;
       } else {
-        // For inline object definitions, we need to find the corresponding model
-        // Look for a model that matches the inline definition
         const modelName = refName.replace(REPLACE_RESPONSE_LIST, '');
         if (modelName) {
           dataType = `${modelName}[]`;
@@ -464,8 +463,6 @@ function generateResponseInterface(
         }
       }
     } else if (propDetails.type === 'object') {
-      // For inline object definitions, we need to find the corresponding model
-      // Look for a model that matches the inline definition
       const modelName = refName
         .replace(REPLACE_RESPONSE_DETAIL, '')
         .replace(REPLACE_RESPONSE_UPDATE, '')
@@ -489,12 +486,11 @@ function generateResponseInterface(
     const isNullable = propDetails.nullable ?? false;
 
     if (propName === 'data' && dataType) {
-      propType = dataType; // Use the overridden or resolved data type
+      propType = dataType;
     } else {
       propType = resolvePropertyType(propName, propDetails, refName, schemas, currentString, propName === 'meta');
     }
 
-    // Handle nullable types
     if (isNullable && !propType.includes('null')) {
       propType = `${propType} | null`;
     }
@@ -506,32 +502,6 @@ function generateResponseInterface(
   return tsInterface;
 }
 
-// Helper function to find a matching model based on inline object definition
-function findMatchingModel(inlineSchema: any, schemas: Record<string, any>): string | null {
-  if (!inlineSchema.properties) return null;
-
-  const inlineProps = Object.keys(inlineSchema.properties).sort();
-  const inlineRequired = (inlineSchema.required || []).sort();
-
-  for (const [schemaName, schema] of Object.entries(schemas)) {
-    if (schemaName.includes('Response') || schemaName.includes('Dto')) continue;
-
-    const schemaProps = Object.keys(schema.properties || {}).sort();
-    const schemaRequired = (schema.required || []).sort();
-
-    // Check if properties and required fields match
-    if (
-      JSON.stringify(inlineProps) === JSON.stringify(schemaProps) &&
-      JSON.stringify(inlineRequired) === JSON.stringify(schemaRequired)
-    ) {
-      return schemaName;
-    }
-  }
-
-  return null;
-}
-
-// Helper to resolve property types
 function resolvePropertyType(
   propName: string,
   propDetails: any,
@@ -638,7 +608,8 @@ ${paths
     : {};
 
   let tagName = '';
-  const hookTsContent = `// Auto-generated file for tag: ${tag}
+  const hookTsContent = `// biome-ignore-all lint/correctness/noUnusedImports: explanation
+// Auto-generated file for tag: ${tag}
 import useAppMutation, { type TMutationOptions } from '@/hooks/use-app-mutation';
 import useAppQuery, { type TQueryOptions } from '@/hooks/use-app-query';
 import { useEffect, useState } from 'react';
@@ -666,33 +637,3 @@ ${importType}${paths
   await fs.writeFile(path.join(folderPath, `use-${toKebabCase(tag)}.ts`), hookTsContent, { encoding: 'utf-8' });
 }
 
-async function main() {
-  const prompt = require('prompt-sync')();
-  const confirmation = prompt(
-    'This action will replace existing folder inside fe-joona-productivity/src/services if the folder already exists? (y/n): ',
-  )
-    .trim()
-    .toLowerCase();
-
-  if (confirmation !== 'y') {
-    console.log('Operation aborted.');
-    process.exit(0);
-  }
-
-  const openapiEndpoint = 'http://localhost:9200/openapi.json';
-  const outputDirectory = '../fe-joona-productivity/src/services-generated/';
-  const outputDirectoryTypes = '../fe-joona-productivity/src/types/';
-  const outputConfigJson = '../fe-joona-productivity/src/config/';
-
-  try {
-    const openapiSchema = await fetchOpenapiSchema(openapiEndpoint);
-    await generateFilesFromOpenapi(openapiSchema, outputDirectory, outputDirectoryTypes, outputConfigJson);
-    console.log('DONE');
-    process.exit(0);
-  } catch (error) {
-    console.error(`Failed to generate files: ${error}`);
-    process.exit(1);
-  }
-}
-
-main();
