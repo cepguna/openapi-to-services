@@ -106,7 +106,22 @@ export const ${summary} = (${queryParamTypes ? `query: { ${queryParamTypes} }, `
   return { ...response, list${capitalTag}: response?.data?.data ?? [] };
 };
 `;
-  } else if (method === 'get' && dynamicSegments.length > 0 && responseType.toLowerCase().includes('list')) {
+  }
+   else if (method === 'get' && dynamicSegments.length > 0 && queryParamTypes && responseType.toLowerCase().includes('list')) {
+    const params = dynamicSegments.join(', ');
+    const paramsBoolean = dynamicSegments.map((param) => `Boolean(${param})`).join(' && ');
+    hookFunction += `
+export const ${summary} = (${dynamicParams}, query: { ${queryParamTypes} }, options?: TQueryOptions) => {
+  const response = useAppQuery<${responseType}>(
+    ['${tag}', '${toKebabCase(summary)}', ${params}, query],
+    () => ${fnName}(${params}, query),
+    { enabled: ${paramsBoolean}, ...options  }
+  );
+  return { ...response, list${capitalTag}: response?.data?.data ?? [] };
+};
+`;
+  }
+  else if (method === 'get' && dynamicSegments.length > 0 && responseType.toLowerCase().includes('list')) {
     const params = dynamicSegments.join(', ');
     const paramsBoolean = dynamicSegments.map((param) => `Boolean(${param})`).join(' && ');
     hookFunction += `
@@ -119,7 +134,8 @@ export const ${summary} = (${dynamicParams}, options?: TQueryOptions) => {
   return { ...response, list${capitalTag}: response?.data?.data ?? [] };
 };
 `;
-  } else if (method === 'get' && dynamicSegments.length > 0) {
+  }
+  else if (method === 'get' && dynamicSegments.length > 0) {
     const params = dynamicSegments.join(', ');
     const paramsBoolean = dynamicSegments.map((param) => `Boolean(${param})`).join(' && ');
     hookFunction += `
@@ -132,7 +148,8 @@ export const ${summary} = (${dynamicParams}, options?: TQueryOptions) => {
   return { ...response, detail${capitalTag}: response?.data?.data ?? undefined };
 };
 `;
-  } else if (method === 'get') {
+  } 
+  else if (method === 'get') {
     hookFunction += `
 export const ${summary} = (${queryParamTypes ? `query: { ${queryParamTypes} }, ` : ''}options?: TQueryOptions) => {
   const response = useAppQuery<${responseType}>(
@@ -143,7 +160,19 @@ export const ${summary} = (${queryParamTypes ? `query: { ${queryParamTypes} }, `
   return { ...response, detail${capitalTag}: response?.data?.data ?? undefined };
 };
 `;
-  } else if (method === 'post') {
+  } else if (method === 'post' && dynamicSegments.length > 0) {
+    const params = dynamicSegments.length > 0 ? dynamicSegments.map((param) => `${param}`).join(', ') : '';
+    const templateValue = dynamicSegments.length > 0 ? `(${params}, value)` : '(value)';
+    hookFunction += `
+export const ${summary} = (${dynamicParams ? `${dynamicParams}, ` : ''}options?: TMutationOptions) => {
+  return useAppMutation(
+    (value: ${dynamicType}) => ${fnName}(${dynamicParams ? `${params}, value` : 'value'}),
+    { toastError: "failed/submit", toastSuccess: "success/submit", ...options  }
+  );
+};
+`;
+  }
+  else if (method === 'post') {
     const params = dynamicSegments.length > 0 ? dynamicSegments.map((param) => `value.${param}`).join(', ') : '';
     const templateValue = dynamicSegments.length > 0 ? `(${params}, value)` : '(value)';
     hookFunction += `
@@ -154,7 +183,8 @@ export const ${summary} = (options?: TMutationOptions) => {
   );
 };
 `;
-  } else if (['patch', 'put'].includes(method)) {
+  }
+  else if (['patch', 'put'].includes(method)) {
     const params = dynamicSegments.join(', ');
     hookFunction += `
 export const ${summary} = (${dynamicParams ? `${dynamicParams}, ` : ''}options?: TMutationOptions) => {

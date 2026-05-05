@@ -78,8 +78,17 @@ const ${summary} = async () => {
 };
 `;
       }
-      if(queryParamTypes){
+      if(queryParamTypes && dynamicParams){
 
+      return `
+const ${summary} = async (${dynamicParams}, params: { ${queryParamTypes} }) => {
+  return ApiHelper.get<${responseType}>({
+    source: \`${dynamicPath}\`,
+    params,
+  });
+};
+`;
+      }else if(queryParamTypes){
       return `
 const ${summary} = async (params: { ${queryParamTypes} }) => {
   return ApiHelper.get<${responseType}>({
@@ -88,7 +97,7 @@ const ${summary} = async (params: { ${queryParamTypes} }) => {
   });
 };
 `;
-      }else{
+      } else{
 
       return `
 const ${summary} = async (${[dynamicParams, queryParamTypes].filter(Boolean).join(', ')}) => {
