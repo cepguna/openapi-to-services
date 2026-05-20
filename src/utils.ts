@@ -100,6 +100,12 @@ export function collectRefs(schema: any): string[] {
   if ('allOf' in schema) {
     schema.allOf?.forEach((item: any) => refs.push(...collectRefs(item)));
   }
+  if ('anyOf' in schema) {
+    schema.anyOf?.forEach((item: any) => refs.push(...collectRefs(item)));
+  }
+  if ('oneOf' in schema) {
+    schema.oneOf?.forEach((item: any) => refs.push(...collectRefs(item)));
+  }
   if ('items' in schema) {
     refs.push(...collectRefs(schema.items));
   }

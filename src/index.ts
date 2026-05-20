@@ -498,10 +498,13 @@ function resolvePropertyType(
     return propDetails.$ref.split('/').pop() || 'any';
   }
   if (propDetails.allOf) {
-    return propDetails.allOf
-      .filter((item: any) => item.$ref)
-      .map((item: any) => item.$ref.split('/').pop() || 'any')
-      .join(' & ');
+    const types = propDetails.allOf.map((item: any) => {
+      if (item.$ref) {
+        return item.$ref.split('/').pop() || 'any';
+      }
+      return resolvePropertyType(propName, item, parentName, schemas, currentString, true);
+    });
+    return Array.from(new Set(types)).join(' & ');
   }
   if (propDetails.anyOf) {
     const types = propDetails.anyOf.map((item: any) =>
@@ -524,9 +527,10 @@ function resolvePropertyType(
       currentString,
       inlineObject,
     );
-    return `${itemsType}[]`;
+    const finalizedItemsType = itemsType.includes('|') || itemsType.includes('&') ? `(${itemsType})` : itemsType;
+    return `${finalizedItemsType}[]`;
   }
-  if (propDetails.type === 'object' && !propDetails.properties && propDetails.additionalProperties) {
+  if ((propDetails.type === 'object' || propDetails.properties) && !propDetails.properties && propDetails.additionalProperties) {
     const valueType = resolvePropertyType(
       `${propName}_value`,
       propDetails.additionalProperties === true ? {} : propDetails.additionalProperties,
@@ -537,7 +541,7 @@ function resolvePropertyType(
     );
     return `Record<string, ${valueType}>`;
   }
-  if (propDetails.type === 'object' && !inlineObject) {
+  if ((propDetails.type === 'object' || propDetails.properties) && !inlineObject) {
     const nestedInterfaceName = `${parentName}_${propName}`;
     if (!currentString.includes(`export interface ${nestedInterfaceName}`)) {
       const nestedInterface = jsonSchemaToTsInterface(nestedInterfaceName, propDetails, currentString, schemas);
@@ -547,7 +551,7 @@ function resolvePropertyType(
     }
     return nestedInterfaceName;
   }
-  if (propDetails.type === 'object' && inlineObject) {
+  if ((propDetails.type === 'object' || propDetails.properties) && inlineObject) {
     let inlineType = '{';
     const subProperties = propDetails.properties ?? {};
     const subRequired = propDetails.required ?? [];
