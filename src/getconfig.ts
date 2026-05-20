@@ -1,4 +1,4 @@
-import { fetchOpenapiSchema, toCamelCase, resolveRef } from './utils';
+import { fetchOpenapiSchema, toCamelCase, resolveRef, collectRefs } from './utils';
 import { jsonSchemaToTsInterface } from './generate-interface';
 
 interface OpenApiData {
@@ -101,10 +101,17 @@ export async function generateFilesFromOpenapi(openapiData: OpenApiData | string
     if (tag === 'api' || tag !== apiTag) continue;
 
     const processedRefs = new Set<string>();
-    for (const ref of tagReferences[tag] ?? []) {
+    const references = tagReferences[tag] ?? new Set<string>();
+    for (const ref of references) {
       const refName = ref.split('/').pop()!;
       if (refName in schemas && !processedRefs.has(ref)) {
         const schema = resolveRef(ref, schemas);
+        const nestedRefs = collectRefs(schema);
+        nestedRefs.forEach((nestedRef) => {
+          if (!references.has(nestedRef)) {
+            references.add(nestedRef);
+          }
+        });
         const newType = jsonSchemaToTsInterface(refName, schema, stringTypes, schemas);
         if (newType) {
           stringTypes += newType;

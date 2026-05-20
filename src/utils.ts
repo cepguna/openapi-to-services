@@ -89,3 +89,22 @@ export function resolveRef(ref: string, schemas: Record<string, any>): any {
   }
   return schema;
 }
+
+export function collectRefs(schema: any): string[] {
+  const refs: string[] = [];
+  if (!schema) return refs;
+
+  if ('$ref' in schema) {
+    refs.push(schema.$ref);
+  }
+  if ('allOf' in schema) {
+    schema.allOf?.forEach((item: any) => refs.push(...collectRefs(item)));
+  }
+  if ('items' in schema) {
+    refs.push(...collectRefs(schema.items));
+  }
+  if ('properties' in schema) {
+    Object.values(schema.properties).forEach((prop: any) => refs.push(...collectRefs(prop)));
+  }
+  return refs;
+}

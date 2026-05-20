@@ -5,6 +5,7 @@ import {
   toPascalCase,
   fetchOpenapiSchema,
   extractText,
+  collectRefs,
   REPLACE_RESPONSE_LIST,
   REPLACE_RESPONSE_DETAIL,
   REPLACE_RESPONSE_UPDATE,
@@ -199,25 +200,7 @@ function groupPathsByTag(data: OpenApiData, resolveRef: (ref: string) => any) {
   return { tagGroups, tagReferences };
 }
 
-// Helper to collect all $ref from a schema
-function collectRefs(schema: any): string[] {
-  const refs: string[] = [];
-  if (!schema) return refs;
 
-  if ('$ref' in schema) {
-    refs.push(schema.$ref);
-  }
-  if ('allOf' in schema) {
-    schema.allOf?.forEach((item: any) => refs.push(...collectRefs(item)));
-  }
-  if ('items' in schema) {
-    refs.push(...collectRefs(schema.items));
-  }
-  if ('properties' in schema) {
-    Object.values(schema.properties).forEach((prop: any) => refs.push(...collectRefs(prop)));
-  }
-  return refs;
-}
 
 async function generateQueryTypes(
   tagGroups: Record<string, PathInfo[]>,
@@ -381,13 +364,14 @@ async function generateDtsFile(
     const refName = ref.split('/').pop() || '';
     if (refName in schemas && !processedRefs.has(ref)) {
       const schema = resolveRef(ref);
+      const nestedRefs = collectRefs(schema);
+      nestedRefs.forEach((nestedRef) => {
+        if (!references.has(nestedRef)) {
+          references.add(nestedRef);
+        }
+      });
+
       if (refName.includes('Response')) {
-        const nestedRefs = collectRefs(schema);
-        nestedRefs.forEach((nestedRef) => {
-          if (!references.has(nestedRef)) {
-            references.add(nestedRef);
-          }
-        });
         stringTypes += generateResponseInterface(refName, schema, schemas, resolveRef, stringTypes);
       } else {
         stringTypes += jsonSchemaToTsInterface(refName, schema, stringTypes, schemas) + '\n';

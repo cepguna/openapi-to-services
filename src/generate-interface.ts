@@ -1,6 +1,5 @@
 import {
   extractText,
-  resolveRef,
   REPLACE_RESPONSE_DETAIL,
   REPLACE_RESPONSE_UPDATE,
   REPLACE_RESPONSE_CREATE,
@@ -15,6 +14,14 @@ export function jsonSchemaToTsInterface(
   if (name.includes('_meta') || name === 'any' || name.includes('|') || name.includes('_data_item')) return '';
 
   const interfaceName = name.includes('Dto') ? extractText(name) : name.replace('_for_', '');
+  if (
+    currentString.includes(`export interface ${interfaceName} `) ||
+    currentString.includes(`export interface ${interfaceName}{\n`) ||
+    currentString.includes(`export interface ${interfaceName} {\n`)
+  ) {
+    return '';
+  }
+
   let tsInterface = `export interface ${interfaceName} {\n`;
   const properties = schema.properties ?? {};
   const required = schema.required ?? [];
@@ -90,33 +97,6 @@ function resolvePropertyType(
       currentString,
       inlineObject,
     );
-
-    let res = '';
-
-    // If the array items use a $ref
-    if (propDetails?.items?.$ref) {
-      const schemaRef = itemsType;
-      const schema = schemas[schemaRef];
-
-      if (schema) {
-        let targetSchema = schema;
-
-        // Try to extract from allOf[1] if it exists, fallback to schema itself
-        if (Array.isArray(schema.allOf)) {
-          // Prefer the second one (typically more detailed)
-          targetSchema = schema.allOf[1] ?? schema.allOf[0] ?? schema;
-        }
-
-        // Now generate nested result
-        res = jsonSchemaToTsInterface(itemsType, targetSchema, '', schemas);
-      } else {
-        console.warn(`! Schema '${schemaRef}' not found in components.schemas`);
-      }
-    }
-
-    if (res) {
-      return [`${itemsType}[]`, `${res}`];
-    }
     return `${itemsType}[]`;
   }
   if (propDetails.type === 'object' && !inlineObject) {
