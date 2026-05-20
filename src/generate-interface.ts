@@ -86,6 +86,18 @@ function resolvePropertyType(
       .map((item: any) => item.$ref.split('/').pop() || 'any')
       .join(' & ');
   }
+  if (propDetails.anyOf) {
+    const types = propDetails.anyOf.map((item: any) =>
+      resolvePropertyType(propName, item, parentName, schemas, currentString, inlineObject)
+    );
+    return Array.from(new Set(types)).join(' | ');
+  }
+  if (propDetails.oneOf) {
+    const types = propDetails.oneOf.map((item: any) =>
+      resolvePropertyType(propName, item, parentName, schemas, currentString, inlineObject)
+    );
+    return Array.from(new Set(types)).join(' | ');
+  }
   // console.log('propName', propName)
 
   if (propDetails.type === 'array') {
@@ -98,6 +110,17 @@ function resolvePropertyType(
       inlineObject,
     );
     return `${itemsType}[]`;
+  }
+  if (propDetails.type === 'object' && !propDetails.properties && propDetails.additionalProperties) {
+    const valueType = resolvePropertyType(
+      `${propName}_value`,
+      propDetails.additionalProperties === true ? {} : propDetails.additionalProperties,
+      parentName,
+      schemas,
+      currentString,
+      inlineObject,
+    );
+    return `Record<string, ${valueType}>`;
   }
   if (propDetails.type === 'object' && !inlineObject) {
     const nestedInterfaceName = `${parentName}_${propName}`;
