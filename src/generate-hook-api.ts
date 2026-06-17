@@ -107,49 +107,42 @@ export const ${summary} = (${queryParamTypes ? `query: { ${queryParamTypes} }, `
 };
 `;
   }
-   else if (method === 'get' && dynamicSegments.length > 0 && queryParamTypes && responseType.toLowerCase().includes('list')) {
+  else if (method === 'get' && dynamicSegments.length > 0) {
     const params = dynamicSegments.join(', ');
     const paramsBoolean = dynamicSegments.map((param) => `Boolean(${param})`).join(' && ');
-    hookFunction += `
+    const isList = responseType.toLowerCase().includes('list') || summary.toLowerCase().includes('list');
+    const returnKey = isList ? `list${capitalTag}` : `detail${capitalTag}`;
+    const defaultReturnValue = isList ? '[]' : 'undefined';
+
+    if (queryParamTypes) {
+      hookFunction += `
 export const ${summary} = (${dynamicParams}, query: { ${queryParamTypes} }, options?: TQueryOptions) => {
   const response = useAppQuery<${responseType}>(
     ['${tag}', '${toKebabCase(summary)}', ${params}, query],
     () => ${fnName}(${params}, query),
     { enabled: ${paramsBoolean}, ...options  }
   );
-  return { ...response, list${capitalTag}: response?.data?.data ?? [] };
+  return { ...response, ${returnKey}: response?.data?.data ?? ${defaultReturnValue} };
 };
 `;
-  }
-  else if (method === 'get' && dynamicSegments.length > 0 && responseType.toLowerCase().includes('list')) {
-    const params = dynamicSegments.join(', ');
-    const paramsBoolean = dynamicSegments.map((param) => `Boolean(${param})`).join(' && ');
-    hookFunction += `
+    } else {
+      hookFunction += `
 export const ${summary} = (${dynamicParams}, options?: TQueryOptions) => {
   const response = useAppQuery<${responseType}>(
     ['${tag}', '${toKebabCase(summary)}', ${params}],
     () => ${fnName}(${params}),
     { enabled: ${paramsBoolean}, ...options  }
   );
-  return { ...response, list${capitalTag}: response?.data?.data ?? [] };
+  return { ...response, ${returnKey}: response?.data?.data ?? ${defaultReturnValue} };
 };
 `;
-  }
-  else if (method === 'get' && dynamicSegments.length > 0) {
-    const params = dynamicSegments.join(', ');
-    const paramsBoolean = dynamicSegments.map((param) => `Boolean(${param})`).join(' && ');
-    hookFunction += `
-export const ${summary} = (${dynamicParams}, options?: TQueryOptions) => {
-  const response = useAppQuery<${responseType}>(
-    ['${tag}', '${toKebabCase(summary)}', ${params}],
-    () => ${fnName}(${params}),
-    { ...options, enabled: ${paramsBoolean} }
-  );
-  return { ...response, detail${capitalTag}: response?.data?.data ?? undefined };
-};
-`;
+    }
   } 
   else if (method === 'get') {
+    const isList = responseType.toLowerCase().includes('list') || summary.toLowerCase().includes('list');
+    const returnKey = isList ? `list${capitalTag}` : `detail${capitalTag}`;
+    const defaultReturnValue = isList ? '[]' : 'undefined';
+
     hookFunction += `
 export const ${summary} = (${queryParamTypes ? `query: { ${queryParamTypes} }, ` : ''}options?: TQueryOptions) => {
   const response = useAppQuery<${responseType}>(
@@ -157,7 +150,7 @@ export const ${summary} = (${queryParamTypes ? `query: { ${queryParamTypes} }, `
     () => ${fnName}(${isQueryExists}),
     options
   );
-  return { ...response, detail${capitalTag}: response?.data?.data ?? undefined };
+  return { ...response, ${returnKey}: response?.data?.data ?? ${defaultReturnValue} };
 };
 `;
   } else if (method === 'post' && dynamicSegments.length > 0) {
